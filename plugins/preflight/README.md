@@ -43,7 +43,7 @@ Em `/config` ou em `pluginConfigs.preflight.options` no `settings.json`:
 Num terminal, no prompt do Claude Code:
 
 ```
-/plugin install preflight --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
+/plugin install preflight --marketplace welt-studio/welt-studio-plugins
 ```
 
 Na primeira vez ele pergunta se adiciona o marketplace (`y`) e depois o escopo (Enter escolhe o de usuário, que vale para todas as sessões). Em seguida abre a tela das opções (`allowBashWrites`, `precommitTimeoutMs`).

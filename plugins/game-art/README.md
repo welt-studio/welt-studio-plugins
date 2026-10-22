@@ -14,6 +14,7 @@ Gera assets de jogo pelo gerador de imagens do Codex CLI e os salva prontos no p
 
 O painel abre sozinho quando há imagem para conferir: depois de cada geração e gravação, e no início da sessão se houver variações pendentes. Aberto assim, ele só se encaixa como barra lateral num terminal largo, a partir de 144 colunas. O comando `/game-art` abre um painel com os assets do projeto, lidos dos runs em `.game-art/runs/`. O painel sobrevive entre sessões.
 
+- **Sem painel lateral:** onde a superfície não põe painéis, como a extensão do VS Code, o `/game-art` desenha a galeria na própria resposta, na conversa, com os mesmos botões e miniaturas.
 - **Layout:** lista à esquerda e detalhe do item selecionado à direita. Abaixo de 90 colunas, os dois lados se empilham. Sem seleção, o detalhe mostra a primeira escolha pendente ou o asset mais novo.
 - **Variações pendentes:** aparecem primeiro, lado a lado e com miniatura. **save x** grava a escolhida no projeto, o mesmo que o `keep_variant` faz. **open** abre em tamanho real.
 - **Opções:** o detalhe de um run com variações mostra todas lado a lado. A gravada no projeto aparece como **chosen**; as outras, com **save**, que grava como outro arquivo (`nome-2.png`) sem substituir. Todas têm **open**.
@@ -102,23 +103,6 @@ Exemplo de `style.json`:
 ```
 
 Campo desconhecido ou valor inválido é erro com o motivo, nunca ignorado. As referências contam muito: uma referência de cor forte puxa a paleta de tudo que for gerado com ela.
-
-## Instalação
-
-Num terminal, no prompt do Claude Code:
-
-```
-/plugin install game-art --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
-```
-
-Na ordem, o que aparece:
-
-1. `Add marketplace?` (`github:welt-studio-desenvolvimentos-ltda/welt-studio-plugins`): responda `y`. Não aparece se o marketplace já foi adicionado.
-2. Os detalhes do plugin, com o escopo de usuário primeiro: Enter.
-3. A tela das opções (`codexModel`, `generationTimeoutMs`).
-4. `Installed game-art. Plugin is now active.` Os hooks já rodam nessa sessão, sem reload, e no escopo de usuário em toda sessão nova.
-
-O comando é de terminal: a aba Code do app desktop responde que ele não está disponível. Instalado pelo terminal no escopo de usuário, o mod carrega lá também.
 
 ## Requisitos
 

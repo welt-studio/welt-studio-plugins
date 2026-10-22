@@ -11,7 +11,7 @@ Você descreve o que quer. O Claude escreve a spec te entrevistando, escreve os 
 Num terminal, no prompt do Claude Code:
 
 ```
-/plugin install spec-gate --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
+/plugin install spec-gate --marketplace welt-studio/welt-studio-plugins
 ```
 
 Na primeira vez ele pergunta se adiciona o marketplace (`y`) e depois o escopo (Enter escolhe o de usuário).

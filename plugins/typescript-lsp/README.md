@@ -33,7 +33,7 @@ npm install -g typescript-language-server typescript
 At the prompt of a terminal Claude Code session:
 
 ```
-/plugin install typescript-lsp --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
+/plugin install typescript-lsp --marketplace welt-studio/welt-studio-plugins
 ```
 
 The first time, it asks to add the marketplace (`y`), then for a scope (Enter picks the user scope).

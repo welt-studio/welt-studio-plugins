@@ -18,12 +18,12 @@ A collection of Claude Code plugins for enhanced development experience.
 One line per plugin, typed at the prompt of a terminal Claude Code session:
 
 ```
-/plugin install typescript-lsp --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
-/plugin install python-lsp --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
-/plugin install spec-gate --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
-/plugin install comfy-local --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
-/plugin install preflight --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
-/plugin install game-art --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
+/plugin install typescript-lsp --marketplace welt-studio/welt-studio-plugins
+/plugin install python-lsp --marketplace welt-studio/welt-studio-plugins
+/plugin install spec-gate --marketplace welt-studio/welt-studio-plugins
+/plugin install comfy-local --marketplace welt-studio/welt-studio-plugins
+/plugin install preflight --marketplace welt-studio/welt-studio-plugins
+/plugin install game-art --marketplace welt-studio/welt-studio-plugins
 ```
 
 The first one asks to add the marketplace (`y`), then for a scope (Enter picks the user scope,

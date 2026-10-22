@@ -342,6 +342,27 @@ describe('gallery pane', () => {
     expect(await ui.find({ type: 'Text', text: /choose a variant/ })).toBeDefined()
   })
 
+  test('where no pane can be placed (VS Code extension), /game-art draws the gallery in its own reply', async ($, on) => {
+    const fixture = world(on)
+    withRuns(fixture)
+    on('ui.open', () => ({ value: { isPlaced: false, reason: 'the attached surfaces place no panes' } }))
+    await start($)
+    const ran = await $.command.run({ command: 'game-art', args: '' } as never)
+    const text = (ran as { text?: string }).text ?? ''
+    expect(text).toContain('this surface has no side panel')
+
+    const row = await $.ui.mount({
+      plugin: PLUGIN_NAME,
+      surface: 'vscode',
+      component: 'CommandOutput',
+      props: { command: 'game-art', args: '', text, isErrored: false } as never,
+    })
+    expect(await row.find({ type: 'Text', text: /choose one to save/ })).toBeDefined()
+    expect(await row.findAll({ type: 'Svg' })).toHaveLength(2)
+    await row.press({ key: `view-${PENDING_RUN}-a` })
+    expect(fixture.runs.at(-1)?.argv[0]).toBe('xdg-open')
+  })
+
   test('/game-art opens the pane', async ($, on) => {
     world(on)
     const opened: string[] = []

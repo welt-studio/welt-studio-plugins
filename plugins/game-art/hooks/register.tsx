@@ -1,7 +1,7 @@
 // Fiação dos eventos para a lib. Só este arquivo toca no `$`.
 
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, HookFailure, Register } from 'claude-code'
+import type { EngineInterface, HookFailure, Register, RenderInput } from 'claude-code'
 
 import { generateAsset, keepVariant, outcomeText } from './lib/asset'
 import type { AssetOutcome, AssetSettings } from './lib/asset'
@@ -36,6 +36,10 @@ const selectedAtom = atom({ plugin: 'game-art', key: 'selected' } as const, null
 const SVG_PIXEL = 4
 
 const COMMAND = 'game-art'
+/** A resposta do /game-art quando a superfície não põe painéis: o render de CommandOutput a troca pela galeria. */
+const INLINE_TEXT = 'game-art gallery (this surface has no side panel, so it is drawn here).'
+/** Largura da galeria na conversa quando a superfície não informa a dela. */
+const INLINE_COLUMNS = 100
 const PANE = 'game-art-gallery'
 /** Quantos assets gravados o painel lista (os mais novos). */
 const PANE_SAVED_LIMIT = 40
@@ -242,6 +246,189 @@ async function runInBackground($: EngineInterface, settings: AssetSettings, requ
   }
 }
 
+/**
+ * A galeria: o painel lateral a desenha e, onde a superfície não põe painéis (a extensão do VS Code), a resposta do
+ * /game-art na conversa.
+ */
+async function galleryTree($: EngineInterface, e: RenderInput<'Pane' | 'CommandOutput'>, configured: Configured, available: number) {
+  const elements = $.ui.resolve(e)
+  const { Box, Button, Text } = elements
+  const root = await read($, rootAtom)
+  const gallery = await read($, galleryAtom)
+  const jobs = await read($, jobsAtom)
+  const detail = detailOf(gallery, await read($, selectedAtom))
+  const confirming = await read($, confirmingAtom)
+  const pending = gallery.filter(isPending)
+  const sections = savedByKind(gallery, PANE_SAVED_LIMIT)
+  const columns = Math.max(24, available)
+  const isWide = columns >= WIDE_COLUMNS
+  const listWidth = isWide ? Math.min(LIST_MAX_COLUMNS, Math.floor(columns * 0.4)) : columns
+  const detailWidth = isWide ? columns - listWidth - 1 : columns
+  // Largura útil de dentro de uma caixa com borda e uma coluna de respiro de cada lado.
+  const inner = (width: number) => Math.max(8, width - 4)
+
+  const kittyGraphics = e.surface === 'terminal' && (await hasKittyGraphics($))
+  const withPng = e.surface !== 'terminal' || kittyGraphics
+  const approximate = e.surface === 'terminal' && !kittyGraphics && !(await isTrueColor($))
+  // Uma miniatura desenhada: Image no kitty/Ghostty, Raster nos outros terminais, SVG fora do terminal.
+  const view = ({ thumb, png }: Picture, side: number, key: string, alt: string) => {
+    if (thumb === undefined) return <Text dimColor>(no preview)</Text>
+    const fitted = fitThumb(thumb, side)
+    if (e.surface === 'terminal') {
+      const { Image, Raster } = $.ui.resolve(e as typeof e & { surface: 'terminal' })
+      const cells = rasterOf(fitted)
+      if (kittyGraphics && png) return <Image key={key} source={{ png }} columns={cells.columns} rows={cells.rows} alt={alt} />
+      return <Raster key={key} {...cells} />
+    }
+    if (!('Svg' in elements)) return <Text dimColor>{alt}</Text>
+    // O PNG real quando cabe no Svg; senão, os pixels da miniatura.
+    const source = (png && svgWithPng(png, fitted, SVG_PIXEL)) || svgOf(fitted, SVG_PIXEL)
+    return <elements.Svg source={source} alt={alt} />
+  }
+  // As variações que o detalhe mostra: todas as opções do run, ou só a do asset quando o run teve uma.
+  const shown = detail === undefined ? [] : detail.entry.choices.length > 1 ? detail.entry.choices : detail.kind === 'saved' ? [detail.item.variant] : []
+  const pictures = await Promise.all(shown.map(variant => loadPicture($, detail!.entry.runDir, variant, withPng)))
+  const nameWidth = Math.min(
+    NAME_MAX_COLUMNS,
+    Math.max(8, ...pending.map(entry => entry.name.length), ...sections.flatMap(section => section.rows.map(row => fileName(row.item.path).length))),
+  )
+  const marker = (isOn: boolean) => (isOn ? '▸ ' : '  ')
+  // Marcador, nome, tamanho (9) e data (11): a data só entra se a linha inteira couber, para nunca quebrar.
+  const showDate = inner(listWidth) >= 2 + nameWidth + 1 + 9 + 11
+  const when = (id: string) => (showDate ? ` ${whenOf(id)}` : '')
+
+  // Uma opção de um run: miniatura e, embaixo, "chosen" (com o arquivo e o unchoose) quando já está no projeto, ou
+  // "save" quando não; open nas duas. O unchoose apaga um arquivo do projeto, então pede um segundo clique.
+  const option = (entry: GalleryEntry, variant: Variant, picture: Picture, side: number) => {
+    const chosen = entry.saved.find(item => item.variant === variant)
+    const isConfirming = chosen !== undefined && confirming === chosen.path
+    return (
+      <Box key={`choice-${entry.runDir}-${variant}`} flexDirection="column">
+        {view(picture, side, `thumb-${entry.runDir}-${variant}`, `${entry.name} ${variant}`)}
+        <Box flexDirection="row" columnGap={1}>
+          {chosen ? (
+            <Text>
+              <Text bold color="green">{`chosen ${variant}`}</Text>
+              <Text dimColor> · {fileName(chosen.path)}</Text>
+            </Text>
+          ) : (
+            <Button key={`keep-${entry.runDir}-${variant}`} variant="primary" onPress={() => void keepFromPane($, configured, entry.runDir, variant)}>
+              {`save ${variant}`}
+            </Button>
+          )}
+          <Button key={`view-${entry.runDir}-${variant}`} plain onPress={() => void openFromPane($, chosen?.path ?? `${entry.runDir}/${finalFile(variant)}`)}>
+            open
+          </Button>
+        </Box>
+        {chosen && !isConfirming && (
+          <Button key={`unchoose-${entry.runDir}-${variant}`} plain onPress={() => void update($, confirmingAtom, () => chosen.path)}>
+            unchoose
+          </Button>
+        )}
+        {chosen && isConfirming && (
+          <Box flexDirection="row" columnGap={1}>
+            <Text color="red">{`delete ${fileName(chosen.path)}?`}</Text>
+            <Button key={`confirm-${entry.runDir}-${variant}`} onPress={() => void unchooseFromPane($, entry.runDir, chosen.path)}>
+              confirm
+            </Button>
+            <Button key={`cancel-${entry.runDir}-${variant}`} plain onPress={() => void update($, confirmingAtom, () => null)}>
+              cancel
+            </Button>
+          </Box>
+        )}
+      </Box>
+    )
+  }
+  const options = (entry: GalleryEntry) => (
+    <Box flexDirection="column" marginTop={1}>
+      {shown.length > 1 && <Text bold>options</Text>}
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
+        {shown.map((variant, slot) => option(entry, variant, pictures[slot] ?? NO_PICTURE, sideFor(shown.length)))}
+      </Box>
+    </Box>
+  )
+  const sideFor = (count: number) => Math.max(8, Math.min(THUMB_SIDE, Math.floor((inner(detailWidth) - 2 * (count - 1)) / count)))
+
+  const list = (
+    <Box key="list" flexDirection="column" width={listWidth} borderStyle="round" borderDimColor paddingX={1}>
+      {pending.length > 0 && <Text bold color="yellow">choose a variant</Text>}
+      {pending.map(entry => {
+        const isOn = isSelected(detail, entry)
+        return (
+          <Button key={`pending-${entry.runDir}`} plain onPress={() => void update($, selectedAtom, () => ({ runDir: entry.runDir, variant: 'a' as const }))}>
+            <Text bold={isOn}>{marker(isOn)}{entry.name.padEnd(nameWidth)}</Text> <Text dimColor>{`${entry.choices.length} options`.padEnd(9)}{when(entry.id)}</Text>
+          </Button>
+        )
+      })}
+      {sections.map(section => (
+        <Box key={`kind-${section.kind}`} flexDirection="column" marginTop={pending.length > 0 || section !== sections[0] ? 1 : 0}>
+          <Text bold>{KIND_SPECS[section.kind].folder} <Text dimColor>({section.rows.length})</Text></Text>
+          {section.rows.map(({ entry, item }) => {
+            const isOn = isSelected(detail, entry, item)
+            return (
+              <Button
+                key={`open-${item.path}`}
+                plain
+                onPress={() => void update($, selectedAtom, () => ({ runDir: entry.runDir, variant: item.variant, path: item.path }))}
+              >
+                <Text bold={isOn}>{marker(isOn)}{fileName(item.path).padEnd(nameWidth)}</Text> <Text dimColor>{`${item.width}x${item.height}`.padEnd(9)}{when(entry.id)}</Text>
+              </Button>
+            )
+          })}
+        </Box>
+      ))}
+      {gallery.length === 0 && <Text dimColor>Nothing generated in this project yet.</Text>}
+    </Box>
+  )
+
+  const card = (
+    <Box key="detail" flexDirection="column" width={detailWidth} borderStyle="round" borderDimColor paddingX={1}>
+      {detail === undefined && <Text dimColor>Ask Claude for an asset; it shows up here.</Text>}
+      {detail?.kind === 'saved' && (
+        <Box flexDirection="column">
+          <Box flexDirection="row" columnGap={1}>
+            <Text bold>{fileName(detail.item.path)}</Text>
+            <Button key="open-selected" variant="primary" onPress={() => void openFromPane($, detail.item.path)}>open</Button>
+          </Box>
+          <Text dimColor>
+            {detail.entry.kind} · {detail.item.width}x{detail.item.height} · {whenOf(detail.entry.id)} · {relativeTo(root, detail.item.path)}
+          </Text>
+          {options(detail.entry)}
+          {shown.length > 1 && <Text dimColor>saving another option adds a file next to it; nothing is replaced</Text>}
+        </Box>
+      )}
+      {detail?.kind === 'pending' && (
+        <Box flexDirection="column">
+          <Text bold>
+            {detail.entry.name} <Text dimColor>· choose one to save into the project</Text>
+          </Text>
+          {options(detail.entry)}
+        </Box>
+      )}
+    </Box>
+  )
+
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row" justifyContent="space-between">
+        <Text>
+          <Text bold>game-art</Text>
+          <Text dimColor> · {root === '' ? 'no project' : fileName(root)} · {summaryOf(gallery)}</Text>
+        </Text>
+        <Button key="refresh" plain onPress={() => void refreshGallery($)}>refresh</Button>
+      </Box>
+      {jobs.length > 0 && <Text color="yellow">generating: {jobs.join(', ')}</Text>}
+      <Box flexDirection={isWide ? 'row' : 'column-reverse'} columnGap={1} marginTop={1}>
+        {list}
+        {card}
+      </Box>
+      {approximate && detail !== undefined && (
+        <Text dimColor>approximate colours (terminal in 256 colours): open shows the real ones</Text>
+      )}
+    </Box>
+  )
+}
+
 /** O `.catch` das tools: um erro interno vira recusa com o motivo, nunca uma exceção solta. */
 function internalError($: unknown, e: unknown, next: { error: HookFailure }) {
   return { deny: `game-art failed internally (${next.error.kind}): ${next.error.message ?? 'no detail'}` }
@@ -273,188 +460,17 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: COMMAND }, async $ => {
     await refreshGallery($)
-    await $.ui.open({ id: PANE, title: 'game-art' })
-    return { text: 'game-art panel opened.' }
+    const opened = await $.ui.open({ id: PANE, title: 'game-art' })
+    // Sem lugar para o painel, a galeria vai na resposta do comando (o render de CommandOutput a desenha).
+    return { text: opened.isPlaced ? 'game-art panel opened.' : INLINE_TEXT }
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const elements = $.ui.resolve(e)
-    const { Box, Button, Text } = elements
-    const root = await read($, rootAtom)
-    const gallery = await read($, galleryAtom)
-    const jobs = await read($, jobsAtom)
-    const detail = detailOf(gallery, await read($, selectedAtom))
-    const confirming = await read($, confirmingAtom)
-    const pending = gallery.filter(isPending)
-    const sections = savedByKind(gallery, PANE_SAVED_LIMIT)
-    const columns = Math.max(24, e.props.bodyColumns)
-    const isWide = columns >= WIDE_COLUMNS
-    const listWidth = isWide ? Math.min(LIST_MAX_COLUMNS, Math.floor(columns * 0.4)) : columns
-    const detailWidth = isWide ? columns - listWidth - 1 : columns
-    // Largura útil de dentro de uma caixa com borda e uma coluna de respiro de cada lado.
-    const inner = (width: number) => Math.max(8, width - 4)
+  on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => galleryTree($, e, configured, e.props.bodyColumns))
 
-    const kittyGraphics = e.surface === 'terminal' && (await hasKittyGraphics($))
-    const withPng = e.surface !== 'terminal' || kittyGraphics
-    const approximate = e.surface === 'terminal' && !kittyGraphics && !(await isTrueColor($))
-    // Uma miniatura desenhada: Image no kitty/Ghostty, Raster nos outros terminais, SVG fora do terminal.
-    const view = ({ thumb, png }: Picture, side: number, key: string, alt: string) => {
-      if (thumb === undefined) return <Text dimColor>(no preview)</Text>
-      const fitted = fitThumb(thumb, side)
-      if (e.surface === 'terminal') {
-        const { Image, Raster } = $.ui.resolve(e as typeof e & { surface: 'terminal' })
-        const cells = rasterOf(fitted)
-        if (kittyGraphics && png) return <Image key={key} source={{ png }} columns={cells.columns} rows={cells.rows} alt={alt} />
-        return <Raster key={key} {...cells} />
-      }
-      if (!('Svg' in elements)) return <Text dimColor>{alt}</Text>
-      // O PNG real quando cabe no Svg; senão, os pixels da miniatura.
-      const source = (png && svgWithPng(png, fitted, SVG_PIXEL)) || svgOf(fitted, SVG_PIXEL)
-      return <elements.Svg source={source} alt={alt} />
-    }
-    // As variações que o detalhe mostra: todas as opções do run, ou só a do asset quando o run teve uma.
-    const shown = detail === undefined ? [] : detail.entry.choices.length > 1 ? detail.entry.choices : detail.kind === 'saved' ? [detail.item.variant] : []
-    const pictures = await Promise.all(shown.map(variant => loadPicture($, detail!.entry.runDir, variant, withPng)))
-    const nameWidth = Math.min(
-      NAME_MAX_COLUMNS,
-      Math.max(8, ...pending.map(entry => entry.name.length), ...sections.flatMap(section => section.rows.map(row => fileName(row.item.path).length))),
-    )
-    const marker = (isOn: boolean) => (isOn ? '▸ ' : '  ')
-    // Marcador, nome, tamanho (9) e data (11): a data só entra se a linha inteira couber, para nunca quebrar.
-    const showDate = inner(listWidth) >= 2 + nameWidth + 1 + 9 + 11
-    const when = (id: string) => (showDate ? ` ${whenOf(id)}` : '')
-
-    // Uma opção de um run: miniatura e, embaixo, "chosen" (com o arquivo e o unchoose) quando já está no projeto, ou
-    // "save" quando não; open nas duas. O unchoose apaga um arquivo do projeto, então pede um segundo clique.
-    const option = (entry: GalleryEntry, variant: Variant, picture: Picture, side: number) => {
-      const chosen = entry.saved.find(item => item.variant === variant)
-      const isConfirming = chosen !== undefined && confirming === chosen.path
-      return (
-        <Box key={`choice-${entry.runDir}-${variant}`} flexDirection="column">
-          {view(picture, side, `thumb-${entry.runDir}-${variant}`, `${entry.name} ${variant}`)}
-          <Box flexDirection="row" columnGap={1}>
-            {chosen ? (
-              <Text>
-                <Text bold color="green">{`chosen ${variant}`}</Text>
-                <Text dimColor> · {fileName(chosen.path)}</Text>
-              </Text>
-            ) : (
-              <Button key={`keep-${entry.runDir}-${variant}`} variant="primary" onPress={() => void keepFromPane($, configured, entry.runDir, variant)}>
-                {`save ${variant}`}
-              </Button>
-            )}
-            <Button key={`view-${entry.runDir}-${variant}`} plain onPress={() => void openFromPane($, chosen?.path ?? `${entry.runDir}/${finalFile(variant)}`)}>
-              open
-            </Button>
-          </Box>
-          {chosen && !isConfirming && (
-            <Button key={`unchoose-${entry.runDir}-${variant}`} plain onPress={() => void update($, confirmingAtom, () => chosen.path)}>
-              unchoose
-            </Button>
-          )}
-          {chosen && isConfirming && (
-            <Box flexDirection="row" columnGap={1}>
-              <Text color="red">{`delete ${fileName(chosen.path)}?`}</Text>
-              <Button key={`confirm-${entry.runDir}-${variant}`} onPress={() => void unchooseFromPane($, entry.runDir, chosen.path)}>
-                confirm
-              </Button>
-              <Button key={`cancel-${entry.runDir}-${variant}`} plain onPress={() => void update($, confirmingAtom, () => null)}>
-                cancel
-              </Button>
-            </Box>
-          )}
-        </Box>
-      )
-    }
-    const options = (entry: GalleryEntry) => (
-      <Box flexDirection="column" marginTop={1}>
-        {shown.length > 1 && <Text bold>options</Text>}
-        <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
-          {shown.map((variant, slot) => option(entry, variant, pictures[slot] ?? NO_PICTURE, sideFor(shown.length)))}
-        </Box>
-      </Box>
-    )
-    const sideFor = (count: number) => Math.max(8, Math.min(THUMB_SIDE, Math.floor((inner(detailWidth) - 2 * (count - 1)) / count)))
-
-    const list = (
-      <Box key="list" flexDirection="column" width={listWidth} borderStyle="round" borderDimColor paddingX={1}>
-        {pending.length > 0 && <Text bold color="yellow">choose a variant</Text>}
-        {pending.map(entry => {
-          const isOn = isSelected(detail, entry)
-          return (
-            <Button key={`pending-${entry.runDir}`} plain onPress={() => void update($, selectedAtom, () => ({ runDir: entry.runDir, variant: 'a' as const }))}>
-              <Text bold={isOn}>{marker(isOn)}{entry.name.padEnd(nameWidth)}</Text> <Text dimColor>{`${entry.choices.length} options`.padEnd(9)}{when(entry.id)}</Text>
-            </Button>
-          )
-        })}
-        {sections.map(section => (
-          <Box key={`kind-${section.kind}`} flexDirection="column" marginTop={pending.length > 0 || section !== sections[0] ? 1 : 0}>
-            <Text bold>{KIND_SPECS[section.kind].folder} <Text dimColor>({section.rows.length})</Text></Text>
-            {section.rows.map(({ entry, item }) => {
-              const isOn = isSelected(detail, entry, item)
-              return (
-                <Button
-                  key={`open-${item.path}`}
-                  plain
-                  onPress={() => void update($, selectedAtom, () => ({ runDir: entry.runDir, variant: item.variant, path: item.path }))}
-                >
-                  <Text bold={isOn}>{marker(isOn)}{fileName(item.path).padEnd(nameWidth)}</Text> <Text dimColor>{`${item.width}x${item.height}`.padEnd(9)}{when(entry.id)}</Text>
-                </Button>
-              )
-            })}
-          </Box>
-        ))}
-        {gallery.length === 0 && <Text dimColor>Nothing generated in this project yet.</Text>}
-      </Box>
-    )
-
-    const card = (
-      <Box key="detail" flexDirection="column" width={detailWidth} borderStyle="round" borderDimColor paddingX={1}>
-        {detail === undefined && <Text dimColor>Ask Claude for an asset; it shows up here.</Text>}
-        {detail?.kind === 'saved' && (
-          <Box flexDirection="column">
-            <Box flexDirection="row" columnGap={1}>
-              <Text bold>{fileName(detail.item.path)}</Text>
-              <Button key="open-selected" variant="primary" onPress={() => void openFromPane($, detail.item.path)}>open</Button>
-            </Box>
-            <Text dimColor>
-              {detail.entry.kind} · {detail.item.width}x{detail.item.height} · {whenOf(detail.entry.id)} · {relativeTo(root, detail.item.path)}
-            </Text>
-            {options(detail.entry)}
-            {shown.length > 1 && <Text dimColor>saving another option adds a file next to it; nothing is replaced</Text>}
-          </Box>
-        )}
-        {detail?.kind === 'pending' && (
-          <Box flexDirection="column">
-            <Text bold>
-              {detail.entry.name} <Text dimColor>· choose one to save into the project</Text>
-            </Text>
-            {options(detail.entry)}
-          </Box>
-        )}
-      </Box>
-    )
-
-    return (
-      <Box flexDirection="column">
-        <Box flexDirection="row" justifyContent="space-between">
-          <Text>
-            <Text bold>game-art</Text>
-            <Text dimColor> · {root === '' ? 'no project' : fileName(root)} · {summaryOf(gallery)}</Text>
-          </Text>
-          <Button key="refresh" plain onPress={() => void refreshGallery($)}>refresh</Button>
-        </Box>
-        {jobs.length > 0 && <Text color="yellow">generating: {jobs.join(', ')}</Text>}
-        <Box flexDirection={isWide ? 'row' : 'column-reverse'} columnGap={1} marginTop={1}>
-          {list}
-          {card}
-        </Box>
-        {approximate && detail !== undefined && (
-          <Text dimColor>approximate colours (terminal in 256 colours): open shows the real ones</Text>
-        )}
-      </Box>
-    )
-  })
+  // Sem painel (a superfície não põe nenhum), a resposta do /game-art vira a galeria na própria conversa.
+  on('ui.render', { component: 'CommandOutput', props: { command: COMMAND } }, ($, e, next) =>
+    e.props.text === INLINE_TEXT ? galleryTree($, e, configured, e.viewport?.columns ?? INLINE_COLUMNS) : next(e),
+  )
 
   on('tool.call', { tool: INIT_STYLE_ID }, async ($, e) => {
     const { tool, tool_use_id, ...input } = e

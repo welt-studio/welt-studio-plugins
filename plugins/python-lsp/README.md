@@ -33,7 +33,7 @@ npm install -g pyright
 At the prompt of a terminal Claude Code session:
 
 ```
-/plugin install python-lsp --marketplace welt-studio-desenvolvimentos-ltda/welt-studio-plugins
+/plugin install python-lsp --marketplace welt-studio/welt-studio-plugins
 ```
 
 The first time, it asks to add the marketplace (`y`), then for a scope (Enter picks the user scope).

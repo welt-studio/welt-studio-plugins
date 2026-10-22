@@ -31,6 +31,10 @@ declare module 'claude-code' {
       selected: GameArtSelection | null
       /** O arquivo cujo "unchoose" espera confirmação no painel; null quando nenhum. */
       confirming: string | null
+      /** A resposta do último /game-art que desenha a galeria na conversa (o painel não foi posto); '' quando nenhuma. */
+      inline: string
+      /** Quantas respostas do /game-art desenharam a galeria na conversa nesta sessão; numera a próxima. */
+      inlineReplies: number
     }
   }
 }

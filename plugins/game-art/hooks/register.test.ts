@@ -4,6 +4,7 @@ import type { Engine } from 'claude-code/testing'
 
 import { PLUGIN_NAME, TOOL_ID, TOOL_NAME } from './lib/request'
 import { KEEP_ID, KEEP_NAME } from './lib/keep'
+import { PLACED_TEXT } from './lib/panel'
 import { INIT_STYLE_ID, INIT_STYLE_NAME } from './lib/style'
 
 const ROOT = '/games/demo'
@@ -349,7 +350,8 @@ describe('gallery pane', () => {
     await start($)
     const ran = await $.command.run({ command: 'game-art', args: '' } as never)
     const text = (ran as { text?: string }).text ?? ''
-    expect(text).toContain('this surface has no side panel')
+    // O motivo do engine chega a quem lê a resposta.
+    expect(text).toContain('the attached surfaces place no panes')
 
     const row = await $.ui.mount({
       plugin: PLUGIN_NAME,
@@ -359,8 +361,34 @@ describe('gallery pane', () => {
     })
     expect(await row.find({ type: 'Text', text: /choose one to save/ })).toBeDefined()
     expect(await row.findAll({ type: 'Svg' })).toHaveLength(2)
+    // Sem TERM_PROGRAM no ambiente, a extensão do VS Code abre a imagem numa aba, não no xdg-open.
     await row.press({ key: `view-${PENDING_RUN}-a` })
-    expect(fixture.runs.at(-1)?.argv[0]).toBe('xdg-open')
+    expect(fixture.runs.at(-1)?.argv[0]).toBe('code')
+  })
+
+  test('an older /game-art reply stays text once a newer one draws the gallery', async ($, on) => {
+    const fixture = world(on)
+    withRuns(fixture)
+    on('ui.open', () => ({ value: { isPlaced: false, reason: 'the attached surfaces place no panes' } }))
+    // O desenho do próprio engine: a linha com o texto da resposta.
+    on('ui.render', { component: 'CommandOutput' }, ($, e) => ({ type: 'Text' as const, children: [e.props.text] }))
+    await start($)
+    const mountReply = async () => {
+      const ran = await $.command.run({ command: 'game-art', args: '' } as never)
+      const text = (ran as { text?: string }).text ?? ''
+      return $.ui.mount({
+        plugin: PLUGIN_NAME,
+        surface: 'vscode',
+        component: 'CommandOutput',
+        props: { command: 'game-art', args: '', text, isErrored: false } as never,
+      })
+    }
+    const older = await mountReply()
+    expect(await older.find({ type: 'Text', text: /choose one to save/ })).toBeDefined()
+    const newer = await mountReply()
+    expect(await newer.find({ type: 'Text', text: /choose one to save/ })).toBeDefined()
+    expect(await older.find({ type: 'Text', text: /choose one to save/ })).toBeUndefined()
+    expect(await older.find({ type: 'Text', text: /^game-art gallery #1:/ })).toBeDefined()
   })
 
   test('/game-art opens the pane', async ($, on) => {
@@ -373,6 +401,6 @@ describe('gallery pane', () => {
     await start($)
     const ran = await $.command.run({ command: 'game-art', args: '' } as never)
     expect(opened).toEqual(['game-art-gallery'])
-    expect(JSON.stringify(ran)).toContain('panel opened')
+    expect((ran as { text?: string }).text).toBe(PLACED_TEXT)
   })
 })

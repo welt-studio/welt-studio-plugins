@@ -4,12 +4,15 @@ import type { AssetOutcome, AssetReport, VariantsReport } from './asset'
 import { formatReport, formatVariant, formatVariants } from './asset'
 import type { Host } from './host'
 
-/** Por onde abrir uma imagem: VS Code (inclusive Remote-WSL), o Windows a partir do WSL, ou o Linux. */
+/**
+ * Por onde abrir uma imagem: VS Code (a extensão, ou o terminal integrado, inclusive Remote-WSL), o Windows a partir do
+ * WSL, ou o Linux. A extensão não define `TERM_PROGRAM`, então a superfície que desenhou o clique decide quando há uma.
+ */
 export const OPENERS = ['vscode', 'wsl', 'xdg'] as const
 export type Opener = (typeof OPENERS)[number]
 
-export function openerFor(termProgram: string | undefined, procVersion: string | undefined): Opener {
-  if (termProgram === 'vscode') return 'vscode'
+export function openerFor(surface: string | undefined, termProgram: string | undefined, procVersion: string | undefined): Opener {
+  if (surface === 'vscode' || termProgram === 'vscode') return 'vscode'
   return /microsoft/i.test(procVersion ?? '') ? 'wsl' : 'xdg'
 }
 

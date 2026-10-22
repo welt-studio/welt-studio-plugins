@@ -1,13 +1,13 @@
 // Fiação dos eventos para a lib. Só este arquivo toca no `$`.
 
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, HookFailure, Register, RenderInput } from 'claude-code'
+import type { EngineInterface, HookFailure, Register, RenderInput, RenderSurface } from 'claude-code'
 
 import { generateAsset, keepVariant, outcomeText } from './lib/asset'
 import type { AssetOutcome, AssetSettings } from './lib/asset'
 import { findProject } from './lib/engine'
 import { isPending, scanGallery, unchoose, whenOf } from './lib/gallery'
-import { detailOf, fileName, isSelected, relativeTo, savedByKind, summaryOf } from './lib/panel'
+import { detailOf, fileName, inlineText, isSelected, PLACED_TEXT, relativeTo, savedByKind, summaryOf } from './lib/panel'
 import type { GalleryEntry } from './lib/gallery'
 import type { Host } from './lib/host'
 import { KIND_SPECS, KINDS } from './lib/kinds'
@@ -31,16 +31,17 @@ const rootAtom = atom({ plugin: 'game-art', key: 'root' } as const, '')
 const galleryAtom = atom({ plugin: 'game-art', key: 'gallery' } as const, [] as GameArtGalleryEntry[])
 const confirmingAtom = atom({ plugin: 'game-art', key: 'confirming' } as const, null as string | null)
 const selectedAtom = atom({ plugin: 'game-art', key: 'selected' } as const, null as GameArtSelection | null)
+const inlineAtom = atom({ plugin: 'game-art', key: 'inline' } as const, '')
+const inlineRepliesAtom = atom({ plugin: 'game-art', key: 'inlineReplies' } as const, 0)
 
 /** Tamanho, em px de tela, de cada pixel da miniatura em SVG. */
 const SVG_PIXEL = 4
 
 const COMMAND = 'game-art'
-/** A resposta do /game-art quando a superfície não põe painéis: o render de CommandOutput a troca pela galeria. */
-const INLINE_TEXT = 'game-art gallery (this surface has no side panel, so it is drawn here).'
 /** Largura da galeria na conversa quando a superfície não informa a dela. */
 const INLINE_COLUMNS = 100
 const PANE = 'game-art-gallery'
+const PANE_TITLE = 'game-art'
 /** Quantos assets gravados o painel lista (os mais novos). */
 const PANE_SAVED_LIMIT = 40
 /** A partir desta largura o painel põe lista e detalhe lado a lado; abaixo, empilha. */
@@ -85,9 +86,10 @@ async function codexHomeOf($: EngineInterface): Promise<string> {
   return home ? `${home}/.codex` : ''
 }
 
-async function openerOf($: EngineInterface): Promise<Opener> {
+/** `surface`: a de quem desenhou o clique; sem ela (uma tool), só o ambiente diz. */
+async function openerOf($: EngineInterface, surface?: RenderSurface): Promise<Opener> {
   const procVersion = await $.fs.read('/proc/version').catch(() => undefined)
-  return openerFor(await $.env.get('TERM_PROGRAM'), procVersion)
+  return openerFor(surface, await $.env.get('TERM_PROGRAM'), procVersion)
 }
 
 function messageOf(error: unknown): string {
@@ -114,7 +116,7 @@ async function refreshGallery($: EngineInterface): Promise<void> {
  * lateral num terminal largo; num estreito ele espera, e o /game-art abre na hora.
  */
 function showPane($: EngineInterface): void {
-  void $.ui.open({ id: PANE, title: 'game-art' }).catch(() => undefined)
+  void $.ui.open({ id: PANE, title: PANE_TITLE }).catch(() => undefined)
 }
 
 /**
@@ -147,8 +149,8 @@ async function loadPicture($: EngineInterface, runDir: string, variant: Variant,
 }
 
 /** Clique no painel: abre a imagem no visualizador (aba do VS Code, Windows pelo WSL, ou xdg-open). */
-async function openFromPane($: EngineInterface, path: string): Promise<void> {
-  const failed = await openImage(hostOf($), await openerOf($), path)
+async function openFromPane($: EngineInterface, surface: RenderSurface, path: string): Promise<void> {
+  const failed = await openImage(hostOf($), await openerOf($, surface), path)
   if (failed) $.ui.toast(`game-art: ${failed}`)
 }
 
@@ -316,7 +318,7 @@ async function galleryTree($: EngineInterface, e: RenderInput<'Pane' | 'CommandO
               {`save ${variant}`}
             </Button>
           )}
-          <Button key={`view-${entry.runDir}-${variant}`} plain onPress={() => void openFromPane($, chosen?.path ?? `${entry.runDir}/${finalFile(variant)}`)}>
+          <Button key={`view-${entry.runDir}-${variant}`} plain onPress={() => void openFromPane($, e.surface, chosen?.path ?? `${entry.runDir}/${finalFile(variant)}`)}>
             open
           </Button>
         </Box>
@@ -388,7 +390,7 @@ async function galleryTree($: EngineInterface, e: RenderInput<'Pane' | 'CommandO
         <Box flexDirection="column">
           <Box flexDirection="row" columnGap={1}>
             <Text bold>{fileName(detail.item.path)}</Text>
-            <Button key="open-selected" variant="primary" onPress={() => void openFromPane($, detail.item.path)}>open</Button>
+            <Button key="open-selected" variant="primary" onPress={() => void openFromPane($, e.surface, detail.item.path)}>open</Button>
           </Box>
           <Text dimColor>
             {detail.entry.kind} · {detail.item.width}x{detail.item.height} · {whenOf(detail.entry.id)} · {relativeTo(root, detail.item.path)}
@@ -460,16 +462,20 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: COMMAND }, async $ => {
     await refreshGallery($)
-    const opened = await $.ui.open({ id: PANE, title: 'game-art' })
-    // Sem lugar para o painel, a galeria vai na resposta do comando (o render de CommandOutput a desenha).
-    return { text: opened.isPlaced ? 'game-art panel opened.' : INLINE_TEXT }
+    const opened = await $.ui.open({ id: PANE, title: PANE_TITLE })
+    // O painel que não foi posto fica aberto esperando, como o engine pede: uma superfície que põe painéis o desenha
+    // quando chegar. Até lá a galeria vai na resposta do comando (o render de CommandOutput a desenha).
+    const text = opened.isPlaced ? PLACED_TEXT : inlineText(opened.reason, await update($, inlineRepliesAtom, count => count + 1))
+    await update($, inlineAtom, () => (opened.isPlaced ? '' : text))
+    return { text }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => galleryTree($, e, configured, e.props.bodyColumns))
 
-  // Sem painel (a superfície não põe nenhum), a resposta do /game-art vira a galeria na própria conversa.
-  on('ui.render', { component: 'CommandOutput', props: { command: COMMAND } }, ($, e, next) =>
-    e.props.text === INLINE_TEXT ? galleryTree($, e, configured, e.viewport?.columns ?? INLINE_COLUMNS) : next(e),
+  // Só a resposta mais recente do /game-art sem painel vira a galeria; as anteriores, e qualquer uma depois que o
+  // painel foi posto, ficam como o texto que são. A largura é a do viewport: o CommandOutput não informa a da coluna.
+  on('ui.render', { component: 'CommandOutput', props: { command: COMMAND } }, async ($, e, next) =>
+    e.props.text === (await read($, inlineAtom)) ? galleryTree($, e, configured, e.viewport?.columns ?? INLINE_COLUMNS) : next(e),
   )
 
   on('tool.call', { tool: INIT_STYLE_ID }, async ($, e) => {

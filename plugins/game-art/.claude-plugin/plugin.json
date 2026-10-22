@@ -1,6 +1,6 @@
 {
   "name": "game-art",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Gera assets de jogo (sprite, ícone, textura, fundo, UI, concept) pelo gerador de imagens do Codex CLI, limpa o fundo e salva na pasta certa do projeto Godot, Unity ou Unreal.",
   "author": {
     "name": "Welt Studio"

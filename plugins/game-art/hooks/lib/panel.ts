@@ -8,6 +8,17 @@ import type { Kind } from './kinds'
 
 export type Selection = GameArtSelection
 
+/** A resposta do /game-art quando o painel foi posto. */
+export const PLACED_TEXT = 'game-art panel opened.'
+
+/**
+ * A resposta do /game-art quando o painel não foi posto, com o motivo do engine. O número da resposta na sessão a faz
+ * única: só a mais recente vira galeria, e as anteriores ficam como texto.
+ */
+export function inlineText(reason: string, reply: number): string {
+  return `game-art gallery #${reply}: the panel was not placed (${reason}), so it is drawn in this reply instead.`
+}
+
 /** O que o lado de detalhe mostra: a comparação de variações de um run, ou um asset gravado. */
 export type Detail = { kind: 'pending'; entry: GalleryEntry } | { kind: 'saved'; entry: GalleryEntry; item: Saved }
 

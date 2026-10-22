@@ -270,9 +270,11 @@ describe('preview', () => {
   })
 
   test('picks VS Code, then WSL, then xdg-open', () => {
-    expect(openerFor('vscode', 'Linux version 6.18 (microsoft-standard-WSL2)')).toBe('vscode')
-    expect(openerFor(undefined, 'Linux version 6.18.40.1-microsoft-standard-WSL2')).toBe('wsl')
-    expect(openerFor('xterm', 'Linux version 6.8.0-generic')).toBe('xdg')
+    expect(openerFor(undefined, 'vscode', 'Linux version 6.18 (microsoft-standard-WSL2)')).toBe('vscode')
+    // A extensão do VS Code não define TERM_PROGRAM: a superfície decide.
+    expect(openerFor('vscode', undefined, 'Linux version 6.18 (microsoft-standard-WSL2)')).toBe('vscode')
+    expect(openerFor('terminal', undefined, 'Linux version 6.18.40.1-microsoft-standard-WSL2')).toBe('wsl')
+    expect(openerFor(undefined, 'xterm', 'Linux version 6.8.0-generic')).toBe('xdg')
   })
 
   test('on WSL the path is converted and handed to explorer.exe, whatever its exit code', async () => {

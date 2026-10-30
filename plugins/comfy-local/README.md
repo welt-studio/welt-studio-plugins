@@ -61,9 +61,10 @@ visível com `claude --debug`.
 
 Essa instalação acontece dentro do tempo de conexão do servidor MCP. Numa
 máquina lenta ou numa rede ruim ela pode estourar esse limite, e o servidor
-aparece como falha na aba **Errors** do `/plugin`. Na sessão seguinte ele
-sobe normal, porque o ambiente já está pronto. Para evitar de vez, suba a
-variável `MCP_TIMEOUT` antes de abrir o Claude Code.
+aparece como falha na aba **Errors** do `/plugin`. Rode `/reload-plugins`:
+a instalação recomeça de onde parou, sem esperar pela tentativa encerrada.
+Para evitar de vez, suba a variável `MCP_TIMEOUT` antes de abrir o Claude
+Code.
 
 ## Ferramentas
 

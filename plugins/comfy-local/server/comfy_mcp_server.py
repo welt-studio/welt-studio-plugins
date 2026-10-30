@@ -194,7 +194,12 @@ def _tool(
         idempotentHint=idempotent,
         openWorldHint=open_world,
     )
-    return mcp.tool(name=name, title=title, annotations=annotations)
+    # Toda ferramenta devolve texto já formatado. Com saída estruturada o SDK
+    # embrulha esse texto em {"result": "..."}, e o cliente mostra o JSON
+    # escapado dentro de outro JSON: ilegível e com mais tokens.
+    return mcp.tool(
+        name=name, title=title, annotations=annotations, structured_output=False
+    )
 
 
 # ---------------------------------------------------------------------

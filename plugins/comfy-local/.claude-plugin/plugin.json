@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "comfy-local",
   "displayName": "ComfyUI Local",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Dirige um ComfyUI local por MCP: lê o grafo aberto no canvas e o edita node a node, espelhando cada mudança na tela e sabendo se ela chegou; mais introspecção da instalação viva, construção de workflows por fragmentos, execução, diagnóstico de job e VRAM, e coleta de saídas.",
   "author": {
     "name": "Welt Studio"
